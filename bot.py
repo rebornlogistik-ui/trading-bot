@@ -21,6 +21,9 @@ if not TOKEN:
     print("Установите её перед запуском, например: export TOKEN='ваш_токен'")
     sys.exit(1)
 
+# Chat ID администратора, которому будут приходить результаты прохождения теста.
+ADMIN_ID = 7845112670
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -153,6 +156,21 @@ async def process_answer(message: types.Message, state: FSMContext, question_ind
         else:
             result += "📚 Нужно заново изучить материал и пройти тест ещё раз.\nКогда будешь готов — снова напиши /test"
         await message.answer(result, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+
+        # Уведомляем администратора о результате прохождения теста.
+        user = message.from_user
+        username = f"@{user.username}" if user.username else "(без username)"
+        admin_text = (
+            f"📊 Новый результат теста\n\n"
+            f"Пользователь: {user.full_name} {username}\n"
+            f"ID: <code>{user.id}</code>\n"
+            f"Результат: <b>{score} из 10</b>\n"
+            f"Допущен: {'✅ да' if score >= 7 else '❌ нет'}"
+        )
+        try:
+            await message.bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+        except Exception as e:
+            logger.warning("Не удалось отправить результат админу: %s", e)
 
 
 def register_handlers(dp: Dispatcher):
