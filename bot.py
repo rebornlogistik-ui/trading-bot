@@ -1,16 +1,32 @@
 import asyncio
 import logging
 import os
+import sys
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.client.default import DefaultBotProperties
+from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 
-TOKEN = os.getenv("TOKEN") or "8551180602:AAHuLuEZWROHtQrvdGZ84yjzNskOafIWGSM"
+# Токен берётся ТОЛЬКО из переменной окружения. Никаких хардкодов в коде —
+# если токен утечёт вместе с кодом (например, в публичный репозиторий),
+# им сможет воспользоваться кто угодно.
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    print("Ошибка: не задана переменная окружения TOKEN.")
+    print("Установите её перед запуском, например: export TOKEN='ваш_токен'")
+    sys.exit(1)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 class Quiz(StatesGroup):
     q1 = State()
@@ -24,102 +40,93 @@ class Quiz(StatesGroup):
     q9 = State()
     q10 = State()
 
+
 QUESTIONS = [
     {
         "text": "1. Главная разница между инвестором и трейдером:",
         "options": [
             "A) Инвестор зарабатывает на росте бизнеса и времени (долго держит), трейдер — на колебаниях цены «здесь и сейчас»",
             "B) Инвестор зарабатывает на колебаниях цены в коротком сроке, трейдер — на росте бизнеса за годы",
-            "C) Оба делают одно и то же, просто называют по-разному"
+            "C) Оба делают одно и то же, просто называют по-разному",
         ],
-        "correct": "A"
+        "correct": "A",
     },
     {
         "text": "2. Какой стиль трейдинга описан как «рыбалка с удочкой на весь день, к вечеру все сделки закрыты»?",
-        "options": [
-            "A) Скальпинг",
-            "B) Позиционная торговля",
-            "C) Интрадей"
-        ],
-        "correct": "C"
+        "options": ["A) Скальпинг", "B) Позиционная торговля", "C) Интрадей"],
+        "correct": "C",
     },
     {
         "text": "3. Если у тебя меньше часа в день на графики, какой стиль, скорее всего, подойдёт?",
-        "options": [
-            "A) Свинг или позиционка",
-            "B) Скальпинг",
-            "C) Интрадей с 200 сделками"
-        ],
-        "correct": "A"
+        "options": ["A) Свинг или позиционка", "B) Скальпинг", "C) Интрадей с 200 сделками"],
+        "correct": "A",
     },
     {
         "text": "4. Зелёная свеча (обычно) означает:",
         "options": [
             "A) Цена закрылась ниже открытия (день/период закончился хуже)",
             "B) Цена вообще не двигалась",
-            "C) Цена закрылась выше открытия (день/период закончился лучше)"
+            "C) Цена закрылась выше открытия (день/период закончился лучше)",
         ],
-        "correct": "C"
+        "correct": "C",
     },
     {
         "text": "5. Что показывают тени (фитили) свечи?",
         "options": [
             "A) Максимум и минимум цены за период (куда цена «выстреливала», но не удержалась)",
             "B) Только цвет свечи",
-            "C) Только цену открытия"
+            "C) Только цену открытия",
         ],
-        "correct": "A"
+        "correct": "A",
     },
     {
         "text": "6. Уровень поддержки — это:",
         "options": [
             "A) «Потолок», от которого цена отскакивает вниз",
             "B) «Пол», от которого цена отскакивает вверх (покупатели выкупают)",
-            "C) Любая круглая цифра на графике"
+            "C) Любая круглая цифра на графике",
         ],
-        "correct": "B"
+        "correct": "B",
     },
     {
         "text": "7. Что часто происходит, когда цена пробивает уровень поддержки?",
         "options": [
             "A) Бывшая поддержка часто становится сопротивлением",
             "B) Уровень остаётся поддержкой навсегда",
-            "C) Цена больше никогда не возвращается к этому уровню"
+            "C) Цена больше никогда не возвращается к этому уровню",
         ],
-        "correct": "A"
+        "correct": "A",
     },
     {
         "text": "8. Какая эмоция чаще всего заставляет закрывать прибыльную сделку слишком рано?",
-        "options": [
-            "A) Жадность",
-            "B) Скука",
-            "C) Страх"
-        ],
-        "correct": "C"
+        "options": ["A) Жадность", "B) Скука", "C) Страх"],
+        "correct": "C",
     },
     {
         "text": "9. Что такое «revenge trading» (отыгрывание убытка)?",
         "options": [
             "A) Спокойный анализ после убытка и вход по плану",
             "B) Сразу после убытка открывать новую сделку «чтобы отбить», часто без анализа и с увеличенным риском",
-            "C) Ведение дневника сделок"
+            "C) Ведение дневника сделок",
         ],
-        "correct": "B"
+        "correct": "B",
     },
     {
         "text": "10. Что помогает лучше всего справляться с эмоциями в трейдинге?",
         "options": [
             "A) Торговать «по ощущениям» в моменте",
             "B) Смотреть чужие результаты в интернете и копировать их",
-            "C) Заранее написанный торговый план + дневник сделок + пауза после убытков"
+            "C) Заранее написанный торговый план + дневник сделок + пауза после убытков",
         ],
-        "correct": "C"
+        "correct": "C",
     },
 ]
+
 
 def make_keyboard(options):
     buttons = [[KeyboardButton(text=opt)] for opt in options]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
 
 async def process_answer(message: types.Message, state: FSMContext, question_index: int, next_state):
     data = await state.get_data()
@@ -127,16 +134,13 @@ async def process_answer(message: types.Message, state: FSMContext, question_ind
     user_answer = message.text.strip()
     correct = QUESTIONS[question_index]["correct"]
     is_correct = user_answer.upper().startswith(correct)
-
     if is_correct:
         score += 1
         feedback = "✅ Правильно!"
     else:
         feedback = "❌ Неправильно!"
-
     await state.update_data(score=score)
     await message.answer(feedback)
-
     if question_index < 9:
         await state.set_state(next_state)
         q = QUESTIONS[question_index + 1]
@@ -150,10 +154,8 @@ async def process_answer(message: types.Message, state: FSMContext, question_ind
             result += "📚 Нужно заново изучить материал и пройти тест ещё раз.\nКогда будешь готов — снова напиши /test"
         await message.answer(result, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
 
-async def main():
-    bot = Bot(token=TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
 
+def register_handlers(dp: Dispatcher):
     @dp.message(Command("start"))
     async def start(message: types.Message, state: FSMContext):
         await state.clear()
@@ -162,7 +164,7 @@ async def main():
             "Всего 10 вопросов.\n"
             "Чтобы быть допущенным к полноценной сессии — нужно правильно ответить минимум на 7.\n\n"
             "Готов? Нажми /test чтобы начать.",
-            reply_markup=ReplyKeyboardRemove()
+            reply_markup=ReplyKeyboardRemove(),
         )
 
     @dp.message(Command("test"))
@@ -213,8 +215,44 @@ async def main():
     async def q10(message: types.Message, state: FSMContext):
         await process_answer(message, state, 9, None)
 
-    print("Бот запущен...")
-    await dp.start_polling(bot)
+
+async def run_bot():
+    """Один цикл поллинга. Возвращает управление, если поллинг завершился/упал."""
+    bot = Bot(token=TOKEN, default=DefaultBotProperties())
+    dp = Dispatcher(storage=MemoryStorage())
+    register_handlers(dp)
+
+    logger.info("Бот запущен...")
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
+
+
+async def main():
+    # Бесконечный цикл с реконнектом: если пропадёт сеть или Telegram API
+    # вернёт временную ошибку, бот не упадёт насовсем, а попробует снова
+    # через паузу. Это и есть работа "24/7" на уровне самого процесса —
+    # хостинг (Railway/Render/systemd) в свою очередь перезапускает сам
+    # процесс, если упадёт он целиком.
+    backoff = 5
+    while True:
+        try:
+            await run_bot()
+            break  # dp.start_polling завершился штатно (например, Ctrl+C)
+        except TelegramRetryAfter as e:
+            logger.warning("Превышен лимит запросов, ждём %s сек.", e.retry_after)
+            await asyncio.sleep(e.retry_after)
+        except TelegramNetworkError as e:
+            logger.warning("Проблема с сетью: %s. Переподключение через %s сек.", e, backoff)
+            await asyncio.sleep(backoff)
+        except Exception as e:
+            logger.exception("Неожиданная ошибка: %s. Переподключение через %s сек.", e, backoff)
+            await asyncio.sleep(backoff)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен.")
